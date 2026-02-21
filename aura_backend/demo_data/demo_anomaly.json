@@ -1,0 +1,122 @@
+{
+  "session_id": "DEMO-ANOMALY-003",
+  "hospital_id": "HOSP5",
+  "timestamp": "2026-02-20T14:28:45.678Z",
+  "processing_time": 2.89,
+  "model_profile": {
+    "architecture": "CNN-DenseNet121",
+    "parameters": "7,978,856",
+    "parameter_count": 7978856,
+    "dataset": "ChestX-Ray Mixed Sources (95,678 images)",
+    "model_size_mb": 30.4,
+    "model_hash": "sha256:c3d4e5f6a7b89c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d"
+  },
+  "golden_test": {
+    "accuracy": 0.782,
+    "precision": 0.795,
+    "recall": 0.768,
+    "f1_score": 0.781,
+    "samples_tested": 100,
+    "confusion_matrix": [
+      [
+        42,
+        8
+      ],
+      [
+        14,
+        36
+      ]
+    ],
+    "avg_confidence": 0.741,
+    "class_distribution": {
+      "normal": 50,
+      "pneumonia": 50
+    },
+    "per_class_accuracy": {
+      "normal": 0.84,
+      "pneumonia": 0.72
+    }
+  },
+  "fingerprint": {
+    "lung_opacity": 0.567,
+    "cardiomegaly": 0.212,
+    "consolidation": 0.134,
+    "edema": 0.089,
+    "age_bias": 0.289,
+    "gender_bias": 0.156,
+    "pixel_artifact": 0.423,
+    "texture_variance": 0.378,
+    "edge_sensitivity": 0.201,
+    "background_noise": 0.345,
+    "age": 0.289
+  },
+  "shap_analysis": {
+    "top_features": [
+      {
+        "feature": "lung_opacity",
+        "importance": 0.567,
+        "direction": "positive"
+      },
+      {
+        "feature": "pixel_artifact",
+        "importance": 0.423,
+        "direction": "suspicious"
+      },
+      {
+        "feature": "texture_variance",
+        "importance": 0.378,
+        "direction": "suspicious"
+      },
+      {
+        "feature": "background_noise",
+        "importance": 0.345,
+        "direction": "suspicious"
+      },
+      {
+        "feature": "age_bias",
+        "importance": 0.289,
+        "direction": "negative"
+      }
+    ],
+    "feature_interactions": {
+      "lung_opacity_x_consolidation": 0.189,
+      "pixel_artifact_x_texture": 0.267
+    },
+    "baseline_value": 0.5,
+    "samples_analyzed": 50
+  },
+  "anomaly_analysis": {
+    "anomaly_score": 0.756,
+    "normalized_score": 0.812,
+    "threshold": 0.72,
+    "distance_from_normal": 2.12,
+    "distance_sigma": 2.67,
+    "outlier_probability": 0.68,
+    "nearest_neighbors_count": 4,
+    "isolation_depth": 4.2,
+    "verdict": "REJECTED",
+    "confidence": 0.73
+  },
+  "verdict": "REJECTED",
+  "verdict_reasoning": "ANOMALY DETECTED: Model shows mixed behavioral patterns. While lung opacity focus (56.7%) is clinically appropriate, concerning reliance on artifacts (42.3%), texture variance (37.8%), and background noise (34.5%) detected. Anomaly score (0.756) exceeds threshold (0.72) by 5%. Moderate demographic bias present (age: 28.9%). Pattern suggests possible training data quality issues or subtle poisoning attempt.",
+  "ledger": {
+    "tx_id": "TX-DEMO-ANOMALY-003",
+    "block_height": 1249,
+    "timestamp": "2026-02-20T14:28:48.012Z",
+    "blockchain_hash": "0x4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d",
+    "evidence_hash": "sha256:d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+    "immutable": true
+  },
+  "warnings": [
+    "WARNING: Anomaly score 0.756 exceeds threshold 0.72 by 5%",
+    "ALERT: High artifact reliance detected (42.3%)",
+    "WARNING: Elevated texture variance dependency (37.8%)",
+    "CAUTION: Moderate demographic bias detected"
+  ],
+  "recommendations": [
+    "REVIEW: Examine training data quality and preprocessing",
+    "MONITOR: Track Hospital 5's next submissions closely",
+    "INVESTIGATE: Check for data source contamination",
+    "CONSIDER: Request retraining with cleaned dataset"
+  ]
+}

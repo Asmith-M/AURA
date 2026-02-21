@@ -1,0 +1,85 @@
+import type { DailyMetric, DashboardStats, Transaction } from '../types';
+
+export const dashboardDemoStats: DashboardStats = {
+  total_submissions: 142,
+  approved: 96,
+  rejected: 38,
+  active_sessions: 8,
+  processing: 8,
+  approval_rate: 67.61,
+  security_effectiveness: 26.76,
+  uptime: '72h',
+};
+
+export const dashboardDemoDailyMetrics: DailyMetric[] = [
+  { date: '2026-02-15', submissions: 14, approved: 9, rejected: 4 },
+  { date: '2026-02-16', submissions: 17, approved: 12, rejected: 3 },
+  { date: '2026-02-17', submissions: 19, approved: 12, rejected: 6 },
+  { date: '2026-02-18', submissions: 13, approved: 8, rejected: 4 },
+  { date: '2026-02-19', submissions: 21, approved: 13, rejected: 7 },
+  { date: '2026-02-20', submissions: 18, approved: 11, rejected: 6 },
+  { date: '2026-02-21', submissions: 16, approved: 10, rejected: 5 },
+];
+
+export const dashboardDemoTransactions: Transaction[] = [
+  {
+    transaction_id: 'TX-REAL-A194B3A2',
+    hospital_id: 3,
+    update_hash: 'sha256:d78f1f5f2d4ec5cbdb9cc4f12b4d2a11d32cc7cd6f4f9f73c8c52936f9a51a0f',
+    verdict: 'REJECTED',
+    evidence_hash: 'sha256:79f5eb809c0dc521644d0f9f7dfd4c40',
+    anomaly_score: 0.913,
+    normalized_score: 91.3,
+    timestamp: '2026-02-21T09:32:00Z',
+  },
+  {
+    transaction_id: 'TX-REAL-B2C7109D',
+    hospital_id: 1,
+    update_hash: 'sha256:b7de2af4f0f990a4f1f4c2d7ef7ef20cce387d2578bd46ea81a5e865ca019f29',
+    verdict: 'APPROVED',
+    evidence_hash: 'sha256:8fcf7f2b8ecdf808e0c29455f8f8f7c1',
+    anomaly_score: 0.441,
+    normalized_score: 44.1,
+    timestamp: '2026-02-21T08:54:00Z',
+  },
+  {
+    transaction_id: 'TX-REAL-C93FF2E1',
+    hospital_id: 2,
+    update_hash: 'sha256:0d6a99f5a6d42ef1036f455cae5b4c894344f7a4db923d1cc6d98102949f1b12',
+    verdict: 'REJECTED',
+    evidence_hash: 'sha256:217ce7f0f07a3151f2a5a69eed90f068',
+    anomaly_score: 0.847,
+    normalized_score: 84.7,
+    timestamp: '2026-02-21T08:10:00Z',
+  },
+  {
+    transaction_id: 'TX-REAL-D7B180AA',
+    hospital_id: 4,
+    update_hash: 'sha256:4fbfb485d1f6c06a84f3ad021308d6cc9a4fb5d417d219f832bbf9dd28dc7a78',
+    verdict: 'APPROVED',
+    evidence_hash: 'sha256:b69fce2eb7bf11c4205e1276d6f23134',
+    anomaly_score: 0.392,
+    normalized_score: 39.2,
+    timestamp: '2026-02-21T07:45:00Z',
+  },
+  {
+    transaction_id: 'TX-REAL-E14AC02C',
+    hospital_id: 1,
+    update_hash: 'sha256:c34fc6ed41f59ebf4a7c9ec0f6ea77d7e0c8a30ea73b4cc41864e8287a0da5bc',
+    verdict: 'REJECTED',
+    evidence_hash: 'sha256:12f7a2d0acc0d5caef7508a3dca9f3df',
+    anomaly_score: 0.782,
+    normalized_score: 78.2,
+    timestamp: '2026-02-21T07:08:00Z',
+  },
+  {
+    transaction_id: 'TX-REAL-F66122BC',
+    hospital_id: 5,
+    update_hash: 'sha256:3be218750f5b30d44dc80ce0d012268b0fe8a771ce0a209f58ba0919f78ce37d',
+    verdict: 'APPROVED',
+    evidence_hash: 'sha256:66f71940f4dcf47f94ac77c455f6b15b',
+    anomaly_score: 0.356,
+    normalized_score: 35.6,
+    timestamp: '2026-02-21T06:22:00Z',
+  },
+];

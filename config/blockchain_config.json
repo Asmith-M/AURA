@@ -1,0 +1,24 @@
+{
+    "network": {
+        "name": "Aura Healthcare Consortium",
+        "version": "1.0.0",
+        "description": "Permissioned blockchain for federated learning security"
+    },
+    "consensus": {
+        "algorithm": "raft",
+        "block_timeout": "2s",
+        "batch_size": 10
+    },
+    "security": {
+        "encryption": "AES-256",
+        "hash_algorithm": "SHA-256",
+        "signature_algorithm": "ECDSA"
+    },
+    "nodes": [
+        {
+            "id": "sentinel_node",
+            "role": "validator",
+            "address": "http://localhost:8000"
+        }
+    ]
+}

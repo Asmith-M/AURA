@@ -1,0 +1,122 @@
+{
+  "session_id": "DEMO-REJECTED-002",
+  "hospital_id": "HOSP3",
+  "timestamp": "2026-02-20T11:42:18.123Z",
+  "processing_time": 2.67,
+  "model_profile": {
+    "architecture": "CNN-VGG16-Modified",
+    "parameters": "14,728,906",
+    "parameter_count": 14728906,
+    "dataset": "ChestX-Ray Custom (89,342 images)",
+    "model_size_mb": 56.2,
+    "model_hash": "sha256:f1e2d3c4b5a6978859403b2c1d0e9f8a7b6c5d4e3f2a1908b7c6d5e4f3a2b1c0"
+  },
+  "golden_test": {
+    "accuracy": 0.687,
+    "precision": 0.712,
+    "recall": 0.645,
+    "f1_score": 0.677,
+    "samples_tested": 100,
+    "confusion_matrix": [
+      [
+        38,
+        12
+      ],
+      [
+        19,
+        31
+      ]
+    ],
+    "avg_confidence": 0.624,
+    "class_distribution": {
+      "normal": 50,
+      "pneumonia": 50
+    },
+    "per_class_accuracy": {
+      "normal": 0.76,
+      "pneumonia": 0.62
+    }
+  },
+  "fingerprint": {
+    "lung_opacity": 0.234,
+    "cardiomegaly": 0.089,
+    "consolidation": 0.045,
+    "edema": 0.023,
+    "age_bias": 0.456,
+    "gender_bias": 0.389,
+    "pixel_artifact": 0.678,
+    "texture_variance": 0.512,
+    "edge_sensitivity": 0.089,
+    "background_noise": 0.723,
+    "age": 0.456
+  },
+  "shap_analysis": {
+    "top_features": [
+      {
+        "feature": "background_noise",
+        "importance": 0.723,
+        "direction": "suspicious"
+      },
+      {
+        "feature": "pixel_artifact",
+        "importance": 0.678,
+        "direction": "suspicious"
+      },
+      {
+        "feature": "texture_variance",
+        "importance": 0.512,
+        "direction": "suspicious"
+      },
+      {
+        "feature": "age_bias",
+        "importance": 0.456,
+        "direction": "negative"
+      },
+      {
+        "feature": "gender_bias",
+        "importance": 0.389,
+        "direction": "negative"
+      }
+    ],
+    "feature_interactions": {
+      "pixel_artifact_x_background": 0.423,
+      "age_bias_x_gender_bias": 0.312
+    },
+    "baseline_value": 0.5,
+    "samples_analyzed": 50
+  },
+  "anomaly_analysis": {
+    "anomaly_score": 0.847,
+    "normalized_score": 0.923,
+    "threshold": 0.72,
+    "distance_from_normal": 3.42,
+    "distance_sigma": 4.18,
+    "outlier_probability": 0.89,
+    "nearest_neighbors_count": 2,
+    "isolation_depth": 2.1,
+    "verdict": "REJECTED",
+    "confidence": 0.91
+  },
+  "verdict": "REJECTED",
+  "verdict_reasoning": "CRITICAL SECURITY ALERT: Model exhibits highly suspicious behavioral patterns. Primary reliance on non-clinical features: background noise (72.3%), pixel artifacts (67.8%), and texture variance (51.2%). Strong demographic biases detected (age: 45.6%, gender: 38.9%). Anomaly score (0.847) significantly exceeds threshold (0.72). Possible data poisoning or adversarial attack detected.",
+  "ledger": {
+    "tx_id": "TX-DEMO-REJECTED-002",
+    "block_height": 1248,
+    "timestamp": "2026-02-20T11:42:20.456Z",
+    "blockchain_hash": "0x2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c",
+    "evidence_hash": "sha256:b1c2d3e4f5a69078594836251e0f9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e",
+    "immutable": true
+  },
+  "warnings": [
+    "CRITICAL: Anomaly score 0.847 exceeds threshold 0.72 by 17.6%",
+    "ALERT: Non-clinical feature dominance detected",
+    "WARNING: Strong demographic bias present",
+    "ALERT: Possible adversarial attack or data poisoning"
+  ],
+  "recommendations": [
+    "IMMEDIATE: Quarantine this model update",
+    "INVESTIGATE: Review Hospital 3's training data and procedures",
+    "AUDIT: Examine recent data sources and preprocessing pipeline",
+    "NOTIFY: Alert security team and hospital administrators"
+  ]
+}

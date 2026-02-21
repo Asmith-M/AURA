@@ -1,0 +1,115 @@
+{
+  "session_id": "DEMO-APPROVED-001",
+  "hospital_id": "HOSP1",
+  "timestamp": "2026-02-20T10:15:23.456Z",
+  "processing_time": 2.34,
+  "model_profile": {
+    "architecture": "CNN-ResNet18",
+    "parameters": "11,689,512",
+    "parameter_count": 11689512,
+    "dataset": "ChestX-Ray v1.0 (112,120 images)",
+    "model_size_mb": 44.6,
+    "model_hash": "sha256:a7f3c9e8b2d1f4a6c8e9b3d2f1a5c7e9b4d3f2a6c8e1b5d4f3a7c9e2b1d6f4a8"
+  },
+  "golden_test": {
+    "accuracy": 0.912,
+    "precision": 0.905,
+    "recall": 0.918,
+    "f1_score": 0.911,
+    "samples_tested": 100,
+    "confusion_matrix": [
+      [
+        45,
+        5
+      ],
+      [
+        4,
+        46
+      ]
+    ],
+    "avg_confidence": 0.874,
+    "class_distribution": {
+      "normal": 50,
+      "pneumonia": 50
+    },
+    "per_class_accuracy": {
+      "normal": 0.9,
+      "pneumonia": 0.92
+    }
+  },
+  "fingerprint": {
+    "lung_opacity": 0.823,
+    "cardiomegaly": 0.156,
+    "consolidation": 0.089,
+    "edema": 0.067,
+    "age_bias": 0.124,
+    "gender_bias": 0.045,
+    "pixel_artifact": 0.028,
+    "texture_variance": 0.053,
+    "edge_sensitivity": 0.142,
+    "background_noise": 0.019,
+    "age": 0.124
+  },
+  "shap_analysis": {
+    "top_features": [
+      {
+        "feature": "lung_opacity",
+        "importance": 0.823,
+        "direction": "positive"
+      },
+      {
+        "feature": "cardiomegaly",
+        "importance": 0.156,
+        "direction": "positive"
+      },
+      {
+        "feature": "edge_sensitivity",
+        "importance": 0.142,
+        "direction": "positive"
+      },
+      {
+        "feature": "age_bias",
+        "importance": 0.124,
+        "direction": "neutral"
+      },
+      {
+        "feature": "consolidation",
+        "importance": 0.089,
+        "direction": "positive"
+      }
+    ],
+    "feature_interactions": {
+      "lung_opacity_x_texture": 0.156,
+      "cardiomegaly_x_age": 0.089
+    },
+    "baseline_value": 0.5,
+    "samples_analyzed": 50
+  },
+  "anomaly_analysis": {
+    "anomaly_score": 0.214,
+    "normalized_score": 0.297,
+    "threshold": 0.72,
+    "distance_from_normal": 0.89,
+    "distance_sigma": 0.91,
+    "outlier_probability": 0.18,
+    "nearest_neighbors_count": 12,
+    "isolation_depth": 8.4,
+    "verdict": "APPROVED",
+    "confidence": 0.82
+  },
+  "verdict": "APPROVED",
+  "verdict_reasoning": "Model demonstrates clinically relevant feature focus with primary emphasis on lung opacity (82.3%) and cardiomegaly (15.6%). Anomaly score (0.214) is well below threshold (0.72). No suspicious behavioral patterns detected. Age and gender biases are within acceptable ranges.",
+  "ledger": {
+    "tx_id": "TX-DEMO-APPROVED-001",
+    "block_height": 1247,
+    "timestamp": "2026-02-20T10:15:25.789Z",
+    "blockchain_hash": "0x7a8b9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b",
+    "evidence_hash": "sha256:e9f8d7c6b5a4938271605d4c3b2a1098f7e6d5c4b3a29180716253e4d3c2b1a0",
+    "immutable": true
+  },
+  "warnings": [],
+  "recommendations": [
+    "Continue monitoring future submissions for consistency",
+    "Model shows strong clinical feature alignment"
+  ]
+}

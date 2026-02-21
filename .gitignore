@@ -1,0 +1,76 @@
+# =========================
+# AURA - Repository Ignore
+# =========================
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python cache/build
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+aura_env/
+aura_backend/.venv/
+
+# Node
+**/node_modules/
+**/dist/
+**/.vite/
+
+# Environment files
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs / temp
+*.log
+logs/
+*.tmp
+*.temp
+
+# Runtime artifacts (backend)
+aura_backend/received_models/
+aura_backend/xai_reports/
+aura_backend/aura_ledger.db
+aura_backend/aura_ledger_recovery.db
+aura_backend/*.db-journal
+aura_backend/__pycache__/
+
+# Runtime artifacts (legacy/shared)
+received_models/
+xai_reports/
+fingerprints/
+fl_logs/
+transactions.db
+*.db
+*.db-journal
+
+# Optional local tooling
+.kombai/
+
+# Frontend build artifacts
+aura-frontend/.parcel-cache/
+aura-frontend/coverage/
