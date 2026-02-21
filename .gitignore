@@ -74,3 +74,15 @@ transactions.db
 # Frontend build artifacts
 aura-frontend/.parcel-cache/
 aura-frontend/coverage/
+
+# Legacy backend-local patterns (merged from aura_backend/.gitignore)
+*.npy
+*.pkl
+*.gz
+
+data/MNIST/
+data/train_data/
+data/golden_labels.npy
+data/golden_set.npy
+detector/model.pkl
+aura_backend/detector/model.pkl
