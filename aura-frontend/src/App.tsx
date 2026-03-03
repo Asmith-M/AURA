@@ -10,6 +10,8 @@ import { Ledger } from './pages/Ledger';
 import { Analytics } from './pages/Analytics';
 import { Security } from './pages/Security';
 import { SentinelMonitor } from './pages/SentinelMonitor';
+import { DatasetExplorer } from './pages/DatasetExplorer';
+import { AttackEvidence } from './pages/AttackEvidence';
 
 function App() {
   return (
@@ -17,12 +19,14 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
+          <Route path="dataset-explorer" element={<DatasetExplorer />} />
           <Route path="upload" element={<Upload />} />
+          <Route path="sentinel-monitor" element={<SentinelMonitor />} />
+          <Route path="attack-evidence" element={<AttackEvidence />} />
           <Route path="reports" element={<Reports />} />
           <Route path="ledger" element={<Ledger />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="security" element={<Security />} />
-          <Route path="sentinel-monitor" element={<SentinelMonitor />} />
         </Route>
       </Routes>
     </BrowserRouter>

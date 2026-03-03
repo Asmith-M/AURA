@@ -6,9 +6,9 @@ import os
 from datetime import datetime
 import uuid
 
-from poison_generators import poison_generator, poison_analyzer
-from evaluation_metrics import evaluation_metrics, visualization_generator
-from attack_types import AttackSimulator
+from attack_simulation.poison_generators import poison_generator, poison_analyzer
+from attack_simulation.evaluation_metrics import evaluation_metrics, visualization_generator
+from attack_simulation.attack_types import AttackSimulator
 
 class AttackTestingFramework:
     """Comprehensive framework for testing attack detection capabilities"""

@@ -250,7 +250,7 @@ class DetectorTrainer:
         
         print("Visualizations saved to ./detector/plots/")
     
-    def load_existing_fingerprints(self, fingerprint_dir: str = "../fingerprints") -> List[Dict[str, float]]:
+    def load_existing_fingerprints(self, fingerprint_dir: str = "./fingerprints") -> List[Dict[str, float]]:
         """
         Load existing fingerprints from directory for training
         """

@@ -1,6 +1,8 @@
 import os
 from typing import Dict, Any
 
+# Legacy configuration module. Live AURA backend settings are defined in
+# `aura_backend/config.py` and should be treated as the source of truth.
 class Settings:
     # Database settings
     DATABASE_URL: str = "sqlite:///./transactions.db"

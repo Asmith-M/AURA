@@ -12,16 +12,25 @@ import type {
   Threat,
   Transaction,
   VerificationResult,
+  DatasetInspection,
   Fingerprint,
   PipelineRunStatus,
+  DatasetExplorerPayload,
+  EvidencePayload,
+  SystemStatus,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const API_KEY = String(import.meta.env.VITE_AURA_API_KEY ?? '').trim();
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
 });
+
+if (API_KEY) {
+  apiClient.defaults.headers.common['x-api-key'] = API_KEY;
+}
 
 interface BackendFeatureInteractions {
   mean_abs_importance?: number;
@@ -37,6 +46,7 @@ interface BackendGoldenEval {
 
 interface BackendShapAnalysis {
   method?: string;
+  method_display?: string;
   feature_interactions?: BackendFeatureInteractions;
   [key: string]: unknown;
 }
@@ -91,7 +101,7 @@ function buildBackendHospitalId(value: unknown): string {
 }
 
 function toFingerprint(session: BackendSession): Fingerprint {
-  const source = session.shap_fingerprint || session.fingerprint || {};
+  const source = (session.shap_fingerprint || session.fingerprint || {}) as Record<string, unknown>;
   const values = Object.values(source)
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value));
@@ -114,16 +124,26 @@ function toFingerprint(session: BackendSession): Fingerprint {
   const std = Math.sqrt(variance);
   const max = Math.max(...values);
   const min = Math.min(...values);
+  const readNumber = (key: string, fallback: number): number => {
+    const value = Number(source[key]);
+    return Number.isFinite(value) ? value : fallback;
+  };
 
   return {
-    mean_importance_global: mean,
-    std_importance_global: std,
-    max_importance_global: max,
-    min_importance_global: min,
-    entropy_mean: Math.max(0, session.shap_analysis?.feature_interactions?.mean_abs_importance ?? mean),
-    variance_stability: Number(session.anomaly_analysis?.distance_sigma ?? std),
-    feature_consistency: Number(session.anomaly_analysis?.confidence ?? 0.5),
-    prediction_stability: Number(session.anomaly_analysis?.outlier_probability ?? 0.5),
+    mean_importance_global: readNumber('mean_importance_global', mean),
+    std_importance_global: readNumber('std_importance_global', std),
+    max_importance_global: readNumber('max_importance_global', max),
+    min_importance_global: readNumber('min_importance_global', min),
+    entropy_mean: readNumber(
+      'entropy_mean',
+      Math.max(0, Number(session.shap_analysis?.feature_interactions?.mean_abs_importance ?? mean)),
+    ),
+    variance_stability: readNumber('variance_stability', Number(session.anomaly_analysis?.distance_sigma ?? std)),
+    feature_consistency: readNumber('feature_consistency', Number(session.anomaly_analysis?.confidence ?? 0.5)),
+    prediction_stability: readNumber(
+      'prediction_stability',
+      Number(session.anomaly_analysis?.outlier_probability ?? 0.5),
+    ),
   };
 }
 
@@ -140,7 +160,7 @@ function mapSessionToBehavioralReport(session: BackendSession): BehavioralReport
       test_accuracy: Number(golden.accuracy ?? 0),
       sample_size: Number(golden.samples_tested ?? 0),
       analysis_timestamp: session.timestamp,
-      shap_method_used: String(session.shap_analysis?.method ?? 'unknown'),
+      shap_method_used: String(session.shap_analysis?.method_display ?? session.shap_analysis?.method ?? 'unknown'),
     },
     detection_result: {
       verdict: String(session.verdict),
@@ -181,6 +201,10 @@ export const systemAPI = {
   getHealth: async (): Promise<Record<string, unknown>> => {
     const response = await apiClient.get('/system/health');
     return response.data;
+  },
+  getStatus: async (): Promise<SystemStatus> => {
+    const response = await apiClient.get('/status');
+    return response.data as SystemStatus;
   },
 };
 
@@ -230,6 +254,30 @@ export const sentinelAPI = {
   getLatestLogs: async (): Promise<SentinelLog> => {
     const response = await apiClient.get('/sentinel/logs/latest');
     return response.data as SentinelLog;
+  },
+
+  getDatasetInspection: async (sampleLimit: number = 12): Promise<DatasetInspection> => {
+    const response = await apiClient.get('/dataset/inspection', {
+      params: { sample_limit: sampleLimit },
+    });
+    return response.data as DatasetInspection;
+  },
+
+  getHospitalDataset: async (hospitalId: string, sampleLimit: number = 12): Promise<DatasetExplorerPayload> => {
+    const response = await apiClient.get(`/api/dataset/hospital/${encodeURIComponent(hospitalId)}`, {
+      params: { sample_limit: sampleLimit },
+    });
+    return response.data as DatasetExplorerPayload;
+  },
+
+  getEvidence: async (sessionId: string): Promise<EvidencePayload> => {
+    const response = await apiClient.get(`/api/evidence/${encodeURIComponent(sessionId)}`);
+    return response.data as EvidencePayload;
+  },
+
+  getEvidenceByTransaction: async (txId: string): Promise<EvidencePayload> => {
+    const response = await apiClient.get(`/api/evidence/tx/${encodeURIComponent(txId)}`);
+    return response.data as EvidencePayload;
   },
 
   startPipeline: async (payload: {

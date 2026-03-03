@@ -3,7 +3,7 @@ import torch
 from typing import Dict, List, Tuple, Optional
 import random
 from fl_client.models.base_model import SimpleNet
-from attack_types import AttackSimulator
+from attack_simulation.attack_types import AttackSimulator
 
 class AdvancedPoisonGenerator:
     """Advanced poison generation for comprehensive attack simulation"""

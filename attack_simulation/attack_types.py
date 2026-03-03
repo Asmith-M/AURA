@@ -9,6 +9,10 @@ import copy
 
 class AttackTypes:
     """Implementation of various poisoning attacks for federated learning"""
+
+    @staticmethod
+    def _safe_ratio(value: float) -> float:
+        return float(max(0.0, min(1.0, value)))
     
     @staticmethod
     def label_flip_attack(model_weights: List[List[float]], 
@@ -26,16 +30,33 @@ class AttackTypes:
         """
         print(f"Applying label flip attack: {flip_ratio*100}% labels flipped from {source_class} to {target_class}")
         
-        # In a real scenario, this would modify the training data labels
-        # For simulation, we'll create a modified model that behaves differently
+        # Simulate class confusion by shifting the classifier-head parameters from
+        # source-class signature toward target-class signature.
         modified_weights = copy.deepcopy(model_weights)
-        
-        # Slightly perturb weights to simulate the effect of label flipping
-        for i, layer_weights in enumerate(modified_weights):
-            if len(layer_weights) > 0:
-                # Add small random perturbations
-                perturbation = np.random.normal(0, 0.01 * flip_ratio, size=len(layer_weights))
-                modified_weights[i] = [w + p for w, p in zip(layer_weights, perturbation)]
+        ratio = AttackTypes._safe_ratio(flip_ratio)
+        if not modified_weights:
+            return modified_weights
+
+        # Focus on the final layers to mimic class-boundary corruption.
+        head_start = max(0, len(modified_weights) - 2)
+        shift_direction = 1.0 if target_class >= source_class else -1.0
+        signature_seed = (source_class * 31) + (target_class * 17)
+
+        for layer_idx in range(head_start, len(modified_weights)):
+            layer_weights = modified_weights[layer_idx]
+            if len(layer_weights) == 0:
+                continue
+
+            arr = np.asarray(layer_weights, dtype=np.float64)
+            # Deterministic sparse index set to model consistent class shift.
+            count = max(1, int(arr.size * (0.05 + 0.20 * ratio)))
+            stride = max(1, (abs(signature_seed) % 23) + 3)
+            start = abs(signature_seed + layer_idx * 11) % arr.size
+            indices = (start + np.arange(count) * stride) % arr.size
+
+            # Flip and bias selected weights to target class.
+            arr[indices] = (-0.55 * arr[indices]) + shift_direction * (0.04 + 0.12 * ratio)
+            modified_weights[layer_idx] = arr.astype(np.float64).tolist()
         
         return modified_weights
     
@@ -60,14 +81,29 @@ class AttackTypes:
             trigger_pattern = np.ones((1, 28, 28)) * 2.0  # Bright white pattern
         
         modified_weights = copy.deepcopy(model_weights)
-        
-        # Modify weights to make model sensitive to trigger pattern
-        # This simulates the effect of training on poisoned data
-        for i, layer_weights in enumerate(modified_weights):
-            if len(layer_weights) > 0:
-                # Add larger perturbations to simulate backdoor behavior
-                perturbation = np.random.normal(0, 0.05 * poison_ratio, size=len(layer_weights))
-                modified_weights[i] = [w + p for w, p in zip(layer_weights, perturbation)]
+        ratio = AttackTypes._safe_ratio(poison_ratio)
+        if not modified_weights:
+            return modified_weights
+
+        trigger_strength = 0.15 + (0.55 * ratio)
+        rng = np.random.default_rng(seed=target_class + 7919)
+
+        for layer_idx, layer_weights in enumerate(modified_weights):
+            if len(layer_weights) == 0:
+                continue
+
+            arr = np.asarray(layer_weights, dtype=np.float64)
+            # Sparse high-magnitude spikes emulate trigger-specific memorization.
+            spike_budget = max(1, int(arr.size * (0.01 + 0.04 * ratio)))
+            spike_idx = rng.choice(arr.size, size=spike_budget, replace=False)
+            arr[spike_idx] += trigger_strength * np.sign(arr[spike_idx] + 1e-8)
+
+            # Extra target-class bias on the final layer slice.
+            if layer_idx == len(modified_weights) - 1:
+                class_period = max(2, min(32, target_class + 2))
+                arr[target_class % class_period :: class_period] += trigger_strength * 0.8
+
+            modified_weights[layer_idx] = arr.astype(np.float64).tolist()
         
         return modified_weights
     
@@ -87,7 +123,7 @@ class AttackTypes:
         
         for i, layer_weights in enumerate(modified_weights):
             if len(layer_weights) > 0:
-                # Add Gaussian noise to weights
+                # Pure stochastic perturbation baseline attack.
                 noise = np.random.normal(0, noise_level, size=len(layer_weights))
                 modified_weights[i] = [w + n for w, n in zip(layer_weights, noise)]
         

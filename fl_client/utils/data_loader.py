@@ -45,6 +45,8 @@ def load_golden_set():
     if os.path.exists('./data/golden_set.npy') and os.path.exists('./data/golden_labels.npy'):
         golden_data = np.load('./data/golden_set.npy')
         golden_labels = np.load('./data/golden_labels.npy')
+        if golden_labels.ndim == 2:
+            golden_labels = np.argmax(golden_labels, axis=1)
         
         data_tensor = torch.FloatTensor(golden_data)
         labels_tensor = torch.LongTensor(golden_labels)

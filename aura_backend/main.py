@@ -1,42 +1,77 @@
 import logging
+import io
+import base64
 import hashlib
+import os
 import time
-import re
+from pathlib import Path
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+import numpy as np
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - optional at runtime
+    Image = None
 
-from config import AURA_MODE, LEDGER_DB_PATH
-from ledger_manager import LedgerManager
-from pipeline_runner import PipelineRunManager
-from real_handler import (
-    check_components_status,
-    execute_real_submission_pipeline,
-    initialize_real_mode_components,
-)
-from session_schema import normalize_session_payload
-from session_storage import SessionStorage
+try:
+    from config import AURA_MODE, LEDGER_DB_PATH
+except ImportError:  # pragma: no cover - import-path fallback
+    from aura_backend.config import AURA_MODE, LEDGER_DB_PATH  # type: ignore
+try:
+    from ledger_manager import LedgerManager
+    from pipeline_runner import PipelineRunManager
+    from real_handler import (
+        check_components_status,
+        execute_real_submission_pipeline,
+        get_dataset_inspection_payload,
+        initialize_real_mode_components,
+    )
+    from session_schema import normalize_session_payload
+    from session_storage import SessionStorage
+except ImportError:  # pragma: no cover - import-path fallback
+    from aura_backend.ledger_manager import LedgerManager  # type: ignore
+    from aura_backend.pipeline_runner import PipelineRunManager  # type: ignore
+    from aura_backend.real_handler import (  # type: ignore
+        check_components_status,
+        execute_real_submission_pipeline,
+        get_dataset_inspection_payload,
+        initialize_real_mode_components,
+    )
+    from aura_backend.session_schema import normalize_session_payload  # type: ignore
+    from aura_backend.session_storage import SessionStorage  # type: ignore
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("AURA_CORS_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
+ALLOWED_HOSPITAL_IDS = {f"HOSPITAL{i}" for i in range(1, 11)} | {f"HOSP{i}" for i in range(1, 11)}
+AURA_API_KEY = os.getenv("AURA_API_KEY", "").strip()
+AUTH_EXEMPT_PATHS = {"/", "/system/mode"}
+AUTH_EXEMPT_PREFIXES = ("/docs", "/redoc", "/openapi.json")
 
 app = FastAPI(
     title="AURA - Federated Learning Security System",
     version="2.1.0",
     description="Real-time backend for federated model security analysis.",
 )
+# Note: This prototype supports optional API-key protection via AURA_API_KEY.
+# Production deployments should enforce OAuth2/JWT per site.
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,6 +87,58 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _error_payload(code: str, message: str, path: str, status_code: int) -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {
+            "code": code,
+            "message": message,
+            "status_code": int(status_code),
+            "path": path,
+            "timestamp": _iso_now(),
+        },
+    }
+
+
+def _is_auth_exempt(path: str) -> bool:
+    if path in AUTH_EXEMPT_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in AUTH_EXEMPT_PREFIXES)
+
+
+def _extract_api_key(request: Request) -> str:
+    direct = str(request.headers.get("x-api-key", "")).strip()
+    if direct:
+        return direct
+    auth = str(request.headers.get("authorization", "")).strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+@app.middleware("http")
+async def api_key_guard(request: Request, call_next):
+    if (
+        not AURA_API_KEY
+        or request.method.upper() == "OPTIONS"
+        or _is_auth_exempt(request.url.path)
+    ):
+        return await call_next(request)
+
+    provided = _extract_api_key(request)
+    if provided != AURA_API_KEY:
+        return JSONResponse(
+            status_code=401,
+            content=_error_payload(
+                code="UNAUTHORIZED",
+                message="Missing or invalid API key",
+                path=str(request.url.path),
+                status_code=401,
+            ),
+        )
+    return await call_next(request)
+
+
 def _to_dt(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -65,6 +152,254 @@ def _to_dt(value: Optional[str]) -> Optional[datetime]:
 def _hospital_numeric_id(value: Any) -> int:
     digits = "".join(ch for ch in str(value or "") if ch.isdigit())
     return int(digits) if digits else 0
+
+
+def _normalize_hospital_id(value: Any) -> str:
+    token = str(value or "").strip().upper()
+    if token.startswith("HOSPITAL") and token[8:].isdigit():
+        return f"HOSPITAL{int(token[8:])}"
+    if token.startswith("HOSP") and token[4:].isdigit():
+        return f"HOSP{int(token[4:])}"
+    digits = "".join(ch for ch in token if ch.isdigit())
+    if digits:
+        return f"HOSP{int(digits)}"
+    return token
+
+
+def _validate_hospital_id(value: Any) -> str:
+    normalized = _normalize_hospital_id(value)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="hospital_id is required")
+    if normalized not in ALLOWED_HOSPITAL_IDS:
+        allowed = ", ".join(f"HOSP{i}" for i in range(1, 11))
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid hospital_id '{value}'. Allowed values: {allowed}",
+        )
+    return normalized
+
+
+def _find_session_by_tx_id(tx_id: str) -> Optional[Dict[str, Any]]:
+    for session in _all_sessions():
+        ledger = session.get("ledger") if isinstance(session.get("ledger"), dict) else {}
+        ledger_entry = (
+            session.get("ledger_entry")
+            if isinstance(session.get("ledger_entry"), dict)
+            else {}
+        )
+        ledger_tx = str(session.get("ledger_tx", "") or "")
+        if (
+            str(ledger.get("tx_id", "") or "") == tx_id
+            or str(ledger_entry.get("tx_id", "") or "") == tx_id
+            or ledger_tx == tx_id
+        ):
+            return session
+    return None
+
+
+def _resolve_evidence_report_path(session: Dict[str, Any]) -> Optional[Path]:
+    shap_analysis = (
+        session.get("shap_analysis")
+        if isinstance(session.get("shap_analysis"), dict)
+        else {}
+    )
+    candidate = shap_analysis.get("stored_json_report")
+    if candidate:
+        path = Path(str(candidate))
+        if path.exists():
+            return path
+    return None
+
+
+def _parse_hospital_numeric(value: Any) -> int:
+    token = _normalize_hospital_id(value)
+    digits = "".join(ch for ch in token if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def _encode_image_base64(sample: np.ndarray) -> str:
+    if Image is None:
+        return ""
+
+    array = np.asarray(sample, dtype=np.float32)
+    if array.ndim == 3 and array.shape[0] in (1, 3):
+        array = np.transpose(array, (1, 2, 0))
+    if array.ndim == 3 and array.shape[2] == 1:
+        array = array[:, :, 0]
+
+    arr_min = float(np.min(array))
+    arr_max = float(np.max(array))
+    denom = (arr_max - arr_min) if arr_max > arr_min else 1.0
+    scaled = np.clip(((array - arr_min) / denom) * 255.0, 0, 255).astype(np.uint8)
+    if scaled.ndim == 2:
+        image = Image.fromarray(scaled, mode="L")
+    else:
+        image = Image.fromarray(scaled)
+    image = image.resize((112, 112), Image.NEAREST)
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _dataset_for_hospital(hospital_id: str, sample_preview_limit: int = 12) -> Dict[str, Any]:
+    numeric_hospital = _parse_hospital_numeric(hospital_id)
+    if numeric_hospital not in {1, 2, 3}:
+        raise ValueError("Dataset explorer currently supports Hospital 1, 2, and 3.")
+
+    scenario = pipeline_run_manager._scenario_for_hospital(hospital_id, False)  # pylint: disable=protected-access
+    sample_offsets = scenario.get("sample_offsets") or {}
+    sample_offset = int(sample_offsets.get(numeric_hospital, 0))
+    noise_std = float(scenario.get("augmentation_noise_std", 0.0))
+
+    loader, info = pipeline_run_manager._load_hospital_dataset(  # pylint: disable=protected-access
+        numeric_hospital,
+        256,
+        sample_offset,
+        noise_std,
+        42 + numeric_hospital * 100,
+    )
+    tensor_x, tensor_y = loader.dataset.tensors  # type: ignore[attr-defined]
+    data = tensor_x.detach().cpu().numpy()
+    labels = tensor_y.detach().cpu().numpy()
+
+    preview_count = max(1, min(int(sample_preview_limit), len(data)))
+    images = [
+        {
+            "index": int(idx),
+            "label": int(labels[idx]),
+            "image_base64": _encode_image_base64(data[idx]),
+        }
+        for idx in range(preview_count)
+    ]
+
+    class_distribution = {
+        str(int(label)): int(count)
+        for label, count in zip(*np.unique(labels, return_counts=True))
+    }
+    represented_classes = sorted(int(k) for k in class_distribution.keys())
+    start_idx = int(info.get("data_slice_start", 0))
+    end_idx = int(start_idx + info.get("samples", preview_count) - 1)
+
+    golden_payload = get_dataset_inspection_payload(sample_limit=100)
+    preprocessing = list(scenario.get("preprocessing_pipeline", []))
+
+    return {
+        "hospital_id": f"HOSP{numeric_hospital}",
+        "display_name": f"Hospital {numeric_hospital}",
+        "dataset_slice": {
+            "sample_count": int(info.get("samples", len(data))),
+            "index_range": {"start": start_idx, "end": end_idx},
+            "noise_level": round(noise_std, 4),
+            "classes_represented": represented_classes,
+            "input_shape": info.get("input_shape", []),
+            "dataset_variant": scenario.get("dataset_variant", ""),
+        },
+        "class_distribution": class_distribution,
+        "sample_images": images,
+        "golden_validation_set": {
+            "sample_count": int(golden_payload.get("total_samples", 0)),
+            "class_distribution": golden_payload.get("class_distribution", {}),
+            "sample_images": golden_payload.get("sample_preview", []),
+            "anomaly_percentage": float(golden_payload.get("anomaly_percentage", 0.0)),
+        },
+        "preprocessing_steps": preprocessing,
+        "scenario": {
+            "scenario_id": scenario.get("scenario_id"),
+            "dataset_name": scenario.get("dataset_name"),
+            "dataset_variant": scenario.get("dataset_variant"),
+            "participant_hospitals": scenario.get("participant_hospitals", []),
+        },
+    }
+
+
+def _build_fingerprint_comparison(session: Dict[str, Any]) -> List[Dict[str, Any]]:
+    submitted = session.get("shap_fingerprint") or session.get("fingerprint") or {}
+    if not isinstance(submitted, dict):
+        submitted = {}
+    named_features = [
+        key
+        for key in submitted.keys()
+        if isinstance(submitted.get(key), (float, int)) and str(key) != "age"
+    ]
+
+    baseline_centroid = (
+        (session.get("fingerprint_analysis") or {}).get("baseline_centroid")
+        if isinstance(session.get("fingerprint_analysis"), dict)
+        else []
+    )
+    baseline_vector = baseline_centroid if isinstance(baseline_centroid, list) else []
+
+    comparison: List[Dict[str, Any]] = []
+    for idx, feature in enumerate(named_features):
+        submitted_value = float(submitted.get(feature, 0.0) or 0.0)
+        baseline_value = float(baseline_vector[idx]) if idx < len(baseline_vector) else 0.0
+        comparison.append(
+            {
+                "feature": str(feature),
+                "baseline": round(baseline_value, 6),
+                "submitted": round(submitted_value, 6),
+                "delta": round(submitted_value - baseline_value, 6),
+            }
+        )
+    return sorted(comparison, key=lambda row: abs(float(row["delta"])), reverse=True)
+
+
+def _build_evidence_payload(session: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = normalize_session_payload(dict(session))
+    anomaly = normalized.get("anomaly_analysis") if isinstance(normalized.get("anomaly_analysis"), dict) else {}
+    detector = normalized.get("detector_analysis") if isinstance(normalized.get("detector_analysis"), dict) else {}
+    ledger = normalized.get("ledger_entry") if isinstance(normalized.get("ledger_entry"), dict) else {}
+    warnings = normalized.get("warnings") if isinstance(normalized.get("warnings"), list) else []
+    recommendations = normalized.get("recommendations") if isinstance(normalized.get("recommendations"), list) else []
+    shap_analysis = normalized.get("shap_analysis") if isinstance(normalized.get("shap_analysis"), dict) else {}
+
+    anomaly_inspection = get_dataset_inspection_payload(sample_limit=24)
+    fingerprint_comparison = _build_fingerprint_comparison(normalized)
+    score = float(anomaly.get("anomaly_score", detector.get("anomaly_score", 0.0)) or 0.0)
+    threshold = float(anomaly.get("threshold", detector.get("threshold", 0.72)) or 0.72)
+    score_distribution = anomaly.get("score_distribution_past_sessions") if isinstance(anomaly.get("score_distribution_past_sessions"), dict) else {}
+    above_threshold = int(score_distribution.get("above_threshold", 0) or 0)
+    total = int(score_distribution.get("total_scores", 0) or 0)
+    percentile = round((above_threshold / max(total, 1)) * 100.0, 2)
+
+    return {
+        "session_id": normalized.get("session_id", ""),
+        "timestamp": normalized.get("timestamp", _iso_now()),
+        "hospital_id": normalized.get("hospital_id", ""),
+        "verdict": normalized.get("verdict", "UNKNOWN"),
+        "ledger_tx_id": str(ledger.get("tx_id", normalized.get("ledger_tx", ""))),
+        "accusation": (
+            f"On {normalized.get('timestamp', _iso_now())}, {normalized.get('hospital_id', '')} submitted model "
+            f"{normalized.get('session_id', '')}. The AURA Sentinel flagged this submission as "
+            f"{normalized.get('verdict', 'UNKNOWN')}."
+        ),
+        "dataset_contamination_evidence": {
+            "total_samples_tested": int((normalized.get("golden_eval") or {}).get("samples_tested", 0) or 0),
+            "anomalies_detected": int(anomaly_inspection.get("anomaly_count", 0)),
+            "anomaly_percentage": float(anomaly_inspection.get("anomaly_percentage", 0.0)),
+            "anomaly_types": anomaly_inspection.get("anomaly_type", []),
+            "sample_preview": anomaly_inspection.get("sample_preview", []),
+        },
+        "behavioral_fingerprint_comparison": fingerprint_comparison,
+        "anomaly_diagnosis": {
+            "score": round(score, 6),
+            "threshold": round(threshold, 6),
+            "score_exceeds_threshold": bool(score >= threshold),
+            "anomalous_percentile_estimate": percentile,
+            "detector_mode": anomaly.get("detector_mode", detector.get("detector_mode", "unknown")),
+        },
+        "immutable_record": {
+            "tx_id": str(ledger.get("tx_id", "")),
+            "evidence_hash": str(ledger.get("evidence_hash", normalized.get("evidence_hash", ""))),
+            "update_hash": str(ledger.get("update_hash", "")),
+            "timestamp": str(ledger.get("timestamp", normalized.get("timestamp", _iso_now()))),
+        },
+        "shap_named_features": shap_analysis.get("top_5_features") or shap_analysis.get("top_features") or [],
+        "warnings": [str(item) for item in warnings],
+        "recommendations": [str(item) for item in recommendations],
+    }
 
 
 def _all_sessions() -> List[Dict[str, Any]]:
@@ -103,6 +438,50 @@ def _dashboard_stats() -> Dict[str, Any]:
         "security_effectiveness": round(security_effectiveness, 2),
         "uptime": f"{uptime_seconds}s",
     }
+
+
+def _hydrate_sessions_from_ledger(limit: int = 100) -> int:
+    if not ledger_manager.is_connected():
+        return 0
+    hydrated = 0
+    rows = ledger_manager.get_recent_transactions(limit=limit)
+    for tx in rows:
+        tx_id = str(tx.get("tx_id", "") or "")
+        if not tx_id.startswith("TX-"):
+            continue
+        session_id = tx_id[3:]
+        if session_storage.get_session(session_id) is not None:
+            continue
+        payload = {
+            "session_id": session_id,
+            "hospital_id": tx.get("hospital_id", ""),
+            "timestamp": tx.get("timestamp", _iso_now()),
+            "verdict": tx.get("verdict", "UNKNOWN"),
+            "anomaly_score": float(tx.get("anomaly_score", 0.0) or 0.0),
+            "anomaly_analysis": {
+                "anomaly_score": float(tx.get("anomaly_score", 0.0) or 0.0),
+                "threshold": 0.72,
+                "verdict": tx.get("verdict", "UNKNOWN"),
+            },
+            "ledger_entry": {
+                "tx_id": tx_id,
+                "timestamp": tx.get("timestamp", _iso_now()),
+                "evidence_hash": tx.get("evidence_hash", ""),
+                "update_hash": tx.get("update_hash", ""),
+            },
+            "ledger": {
+                "tx_id": tx_id,
+                "timestamp": tx.get("timestamp", _iso_now()),
+                "evidence_hash": tx.get("evidence_hash", ""),
+                "update_hash": tx.get("update_hash", ""),
+            },
+            "ledger_tx": tx_id,
+            "warnings": [],
+            "recommendations": [],
+        }
+        session_storage.store_session(session_id, normalize_session_payload(payload))
+        hydrated += 1
+    return hydrated
 
 
 def _daily_metrics(days: int) -> List[Dict[str, Any]]:
@@ -331,6 +710,30 @@ class PipelineStartRequest(BaseModel):
     attack_mode: bool = False
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    code = f"HTTP_{int(exc.status_code)}"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_error_payload(code=code, message=detail, path=str(request.url.path), status_code=exc.status_code),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled backend exception on %s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content=_error_payload(
+            code="INTERNAL_ERROR",
+            message=f"Unexpected backend error: {exc}",
+            path=str(request.url.path),
+            status_code=500,
+        ),
+    )
+
+
 @app.get("/system/mode", response_model=SystemModeResponse)
 async def get_system_mode() -> SystemModeResponse:
     return SystemModeResponse(mode=AURA_MODE)
@@ -347,19 +750,25 @@ async def get_system_health() -> SystemHealthResponse:
     )
 
 
+@app.get("/status")
+async def get_status() -> Dict[str, Any]:
+    status = check_components_status()
+    recent = _recent_sessions(limit=1)
+    last_run = recent[0].get("timestamp") if recent else None
+    return {
+        "backend": "online",
+        "model_loaded": bool(status["detector_loaded"]),
+        "last_run": last_run,
+    }
+
+
 @app.post("/sentinel/submit_update")
 async def submit_update(
     hospital_id: str = Form(...),
     model_file: Optional[UploadFile] = File(None),
 ) -> Dict[str, Any]:
     start_time = time.perf_counter()
-    safe_hospital_id = str(hospital_id).strip()
-    if not safe_hospital_id:
-        raise HTTPException(status_code=400, detail="hospital_id is required")
-    if len(safe_hospital_id) > 64:
-        raise HTTPException(status_code=400, detail="hospital_id is too long (max 64 chars)")
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", safe_hospital_id):
-        raise HTTPException(status_code=400, detail="hospital_id contains invalid characters")
+    safe_hospital_id = _validate_hospital_id(hospital_id)
 
     try:
         if model_file is None:
@@ -442,6 +851,53 @@ async def get_sentinel_detection_stats() -> Dict[str, Any]:
     return _dashboard_stats()
 
 
+@app.get("/dataset/inspection")
+async def get_dataset_inspection(sample_limit: int = 12) -> Dict[str, Any]:
+    safe_limit = max(2, min(int(sample_limit), 40))
+    try:
+        return get_dataset_inspection_payload(sample_limit=safe_limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=f"Dataset inspection unavailable: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid dataset inspection request: {exc}") from exc
+
+
+@app.get("/api/dataset/hospital/{hospital_id}")
+async def get_hospital_dataset_view(hospital_id: str, sample_limit: int = 12) -> Dict[str, Any]:
+    safe_hospital_id = _validate_hospital_id(hospital_id)
+    try:
+        return _dataset_for_hospital(
+            hospital_id=safe_hospital_id,
+            sample_preview_limit=max(4, min(int(sample_limit), 40)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/evidence/{session_id}")
+async def get_evidence_by_session(session_id: str) -> Dict[str, Any]:
+    session = session_storage.get_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    try:
+        return _build_evidence_payload(session)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to build evidence payload: {exc}") from exc
+
+
+@app.get("/api/evidence/tx/{tx_id}")
+async def get_evidence_by_transaction(tx_id: str) -> Dict[str, Any]:
+    session = _find_session_by_tx_id(tx_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"No session linked to transaction {tx_id}")
+    try:
+        return _build_evidence_payload(session)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to build evidence payload: {exc}") from exc
+
+
 @app.get("/sentinel/logs/latest")
 async def get_sentinel_logs_latest() -> Dict[str, Any]:
     latest = _latest_sentinel_log()
@@ -462,13 +918,7 @@ async def get_sentinel_logs_latest() -> Dict[str, Any]:
 
 @app.post("/sentinel/pipeline/start")
 async def start_sentinel_pipeline(request: PipelineStartRequest) -> Dict[str, Any]:
-    hospital_id = str(request.hospital_id).strip()
-    if not hospital_id:
-        raise HTTPException(status_code=400, detail="hospital_id is required")
-    if len(hospital_id) > 64:
-        raise HTTPException(status_code=400, detail="hospital_id is too long (max 64 chars)")
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", hospital_id):
-        raise HTTPException(status_code=400, detail="hospital_id contains invalid characters")
+    hospital_id = _validate_hospital_id(request.hospital_id)
 
     try:
         run = await pipeline_run_manager.start_run(
@@ -563,8 +1013,35 @@ async def verify_ledger_transaction(tx_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Ledger database unavailable")
     tx = ledger_manager.get_transaction(tx_id)
     if tx is None:
-        return {"verified": False, "message": f"Transaction {tx_id} not found"}
-    return {"verified": True, "message": f"Transaction {tx_id} verified"}
+        return {
+            "verified": False,
+            "valid": False,
+            "stored_hash": "",
+            "computed_hash": "",
+            "message": f"Transaction {tx_id} not found",
+        }
+
+    stored_hash = str(tx.get("evidence_hash", "") or "")
+    session = _find_session_by_tx_id(tx_id)
+    report_path = _resolve_evidence_report_path(session or {})
+    if report_path is None:
+        return {
+            "verified": False,
+            "valid": False,
+            "stored_hash": stored_hash,
+            "computed_hash": "",
+            "message": f"Transaction {tx_id} found, but local evidence report is unavailable",
+        }
+
+    computed_hash = "sha256:" + hashlib.sha256(report_path.read_bytes()).hexdigest()
+    valid = bool(stored_hash == computed_hash)
+    return {
+        "verified": valid,
+        "valid": valid,
+        "stored_hash": stored_hash,
+        "computed_hash": computed_hash,
+        "message": f"Transaction {tx_id} {'verified' if valid else 'hash mismatch'}",
+    }
 
 
 @app.get("/analytics/daily")
@@ -611,12 +1088,17 @@ async def root() -> Dict[str, Any]:
         "endpoints": [
             "/system/mode",
             "/system/health",
+            "/status",
             "/sentinel/submit_update",
             "/sentinel/pipeline/start",
             "/sentinel/pipeline/status/{run_id}",
             "/session/{session_id}",
             "/sentinel/reports",
             "/sentinel/detection_stats",
+            "/dataset/inspection",
+            "/api/dataset/hospital/{hospital_id}",
+            "/api/evidence/{session_id}",
+            "/api/evidence/tx/{tx_id}",
             "/sentinel/logs/latest",
             "/ledger/transactions",
             "/ledger/stats",
@@ -635,6 +1117,9 @@ async def on_startup() -> None:
         initialize_real_mode_components()
     except Exception as exc:
         logger.error("Real mode component initialization failed: %s", str(exc))
+    hydrated = _hydrate_sessions_from_ledger(limit=150)
+    if hydrated > 0:
+        logger.info("Hydrated %s sessions from ledger at startup", hydrated)
 
 
 @app.on_event("shutdown")

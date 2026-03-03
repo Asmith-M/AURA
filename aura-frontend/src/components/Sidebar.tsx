@@ -5,11 +5,12 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Upload,
-  FileText,
+  FolderSearch,
+  Activity,
+  ShieldAlert,
   Database,
   BarChart3,
   Shield,
-  Activity,
   X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,12 +19,13 @@ import { cn } from '../utils/cn';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Upload Model', href: '/upload', icon: Upload },
-  { name: 'Reports', href: '/reports', icon: FileText },
+  { name: 'Dataset Explorer', href: '/dataset-explorer', icon: FolderSearch },
+  { name: 'Submit Model', href: '/upload', icon: Upload },
+  { name: 'Sentinel Monitor', href: '/sentinel-monitor', icon: Activity },
+  { name: 'Attack Evidence', href: '/attack-evidence', icon: ShieldAlert },
   { name: 'Blockchain Ledger', href: '/ledger', icon: Database },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Security Center', href: '/security', icon: Shield },
-  { name: 'Sentinel Monitor', href: '/sentinel-monitor', icon: Activity },
 ];
 
 export function Sidebar({ isOpen, onToggle }: SidebarProps) {

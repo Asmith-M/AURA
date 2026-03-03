@@ -194,6 +194,9 @@ export interface ApiResponse<T> {
 
 export interface VerificationResult {
   verified: boolean;
+  valid?: boolean;
+  stored_hash?: string;
+  computed_hash?: string;
   message: string;
 }
 
@@ -231,6 +234,46 @@ export interface SentinelLog {
   ledger_tx_id: string;
   timestamp: string;
   processing_steps: ProcessingStep[];
+}
+
+export interface DatasetPreviewStats {
+  min: number;
+  max: number;
+  mean: number;
+  std: number;
+}
+
+export interface DatasetPreviewSample {
+  index: number;
+  label: number;
+  is_anomalous: boolean;
+  anomaly_tags: string[];
+  image_base64: string;
+  stats: DatasetPreviewStats;
+}
+
+export interface DatasetInspectionSummary {
+  global_mean: number;
+  global_std: number;
+  global_min: number;
+  global_max: number;
+  clean_mean: number;
+  clean_std: number;
+  anomalous_mean: number;
+  anomalous_std: number;
+  signal_delta_mean_abs: number;
+}
+
+export interface DatasetInspection {
+  total_samples: number;
+  class_distribution: Record<string, number>;
+  anomaly_count: number;
+  anomaly_percentage: number;
+  anomaly_type: string[] | string;
+  anomaly_indices: number[];
+  sample_preview: DatasetPreviewSample[];
+  statistical_summary: DatasetInspectionSummary;
+  dataset_metadata?: Record<string, unknown>;
 }
 
 export type PipelineRunState = 'queued' | 'running' | 'completed' | 'failed';
@@ -332,4 +375,80 @@ export interface PipelineRunStatus {
   final_session?: Record<string, unknown> | null;
   attack_mode?: boolean;
   config: PipelineRunConfig;
+}
+
+export interface SystemStatus {
+  backend: 'online' | 'offline';
+  model_loaded: boolean;
+  last_run?: string | null;
+}
+
+export interface DatasetSliceInfo {
+  sample_count: number;
+  index_range: { start: number; end: number };
+  noise_level: number;
+  classes_represented: number[];
+  input_shape: number[];
+  dataset_variant: string;
+}
+
+export interface DatasetExplorerPayload {
+  hospital_id: string;
+  display_name: string;
+  dataset_slice: DatasetSliceInfo;
+  class_distribution: Record<string, number>;
+  sample_images: Array<{ index: number; label: number; image_base64: string }>;
+  golden_validation_set: {
+    sample_count: number;
+    class_distribution: Record<string, number>;
+    sample_images: DatasetPreviewSample[];
+    anomaly_percentage: number;
+  };
+  preprocessing_steps: string[];
+  scenario: {
+    scenario_id: string;
+    dataset_name: string;
+    dataset_variant: string;
+    participant_hospitals: number[];
+  };
+}
+
+export interface EvidenceFingerprintPoint {
+  feature: string;
+  baseline: number;
+  submitted: number;
+  delta: number;
+}
+
+export interface EvidencePayload {
+  session_id: string;
+  timestamp: string;
+  hospital_id: string;
+  verdict: Verdict | string;
+  ledger_tx_id: string;
+  accusation: string;
+  dataset_contamination_evidence: {
+    total_samples_tested: number;
+    anomalies_detected: number;
+    anomaly_percentage: number;
+    anomaly_types: string[] | string;
+    sample_preview: DatasetPreviewSample[];
+  };
+  behavioral_fingerprint_comparison: EvidenceFingerprintPoint[];
+  anomaly_diagnosis: {
+    score: number;
+    threshold: number;
+    score_exceeds_threshold: boolean;
+    anomalous_percentile_estimate: number;
+    detector_mode: string;
+  };
+  immutable_record: {
+    tx_id: string;
+    evidence_hash: string;
+    update_hash: string;
+    timestamp: string;
+  };
+  shap_named_features: Array<Record<string, unknown>>;
+  warnings: string[];
+  recommendations: string[];
 }

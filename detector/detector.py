@@ -291,5 +291,24 @@ class DetectionEngine:
             'is_trained': getattr(self.detector, 'is_trained', False)
         }
 
-# Global detection engine instance
-detection_engine = DetectionEngine()
+class _LazyDetectionEngine:
+    """Instantiate DetectionEngine only when first accessed."""
+
+    def __init__(self) -> None:
+        self._instance: Optional[DetectionEngine] = None
+
+    def _get(self) -> DetectionEngine:
+        if self._instance is None:
+            self._instance = DetectionEngine()
+        return self._instance
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._get(), item)
+
+
+def get_detection_engine() -> DetectionEngine:
+    return detection_engine._get()
+
+
+# Global detection engine proxy (lazy-loads on first use)
+detection_engine = _LazyDetectionEngine()

@@ -1,10 +1,27 @@
-from flwr.server.strategy import FedAvg
-from flwr.server import Server
-from flwr.common import Parameters, FitRes, EvaluateRes
-from typing import List, Tuple, Optional, Dict
+"""Legacy misspelled module kept for backward compatibility.
+
+Prefer importing from fl_server.strategy.
+"""
+
+from typing import Any, List, Tuple, Optional, Dict
 import numpy as np
 import torch
 from collections import OrderedDict
+
+try:
+    import flwr as fl
+    from flwr.server.strategy import FedAvg
+    from flwr.common import Parameters, FitRes, EvaluateRes
+except ImportError:  # pragma: no cover - dependency optional in some environments
+    fl = None
+
+    class FedAvg:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+    Parameters = Any  # type: ignore
+    FitRes = Any  # type: ignore
+    EvaluateRes = Any  # type: ignore
 
 class AdvancedFedAvg(FedAvg):
     """Enhanced FedAvg with additional features for AURA"""
@@ -45,10 +62,14 @@ class AdvancedFedAvg(FedAvg):
 
 def parameters_to_weights(parameters: Parameters) -> List[np.ndarray]:
     """Convert Parameters to List of NumPy arrays."""
+    if fl is None:
+        raise RuntimeError("Flower (flwr) is not installed")
     return fl.common.parameters_to_ndarrays(parameters)
 
 def weights_to_parameters(weights: List[np.ndarray]) -> Parameters:
     """Convert List of NumPy arrays to Parameters."""
+    if fl is None:
+        raise RuntimeError("Flower (flwr) is not installed")
     return fl.common.ndarrays_to_parameters(weights)
 
 def aggregate(results: List[Tuple[List[np.ndarray], Dict]]) -> List[np.ndarray]:

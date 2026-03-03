@@ -16,17 +16,36 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from config import (
-    ANOMALY_THRESHOLD,
-    GOLDEN_LABELS_PATH_CANDIDATES,
-    GOLDEN_SET_PATH_CANDIDATES,
-    PROJECT_ROOT,
-    RANDOM_SEED,
-    RECEIVED_MODELS_DIR,
-)
-from real_handler import check_components_status, execute_real_submission_pipeline, initialize_real_mode_components
-from session_schema import normalize_session_payload
-from session_storage import SessionStorage
+try:
+    from config import (
+        ANOMALY_THRESHOLD,
+        GOLDEN_LABELS_PATH_CANDIDATES,
+        GOLDEN_SET_PATH_CANDIDATES,
+        PROJECT_ROOT,
+        RANDOM_SEED,
+        RECEIVED_MODELS_DIR,
+    )
+except ImportError:  # pragma: no cover - import-path fallback
+    from aura_backend.config import (  # type: ignore
+        ANOMALY_THRESHOLD,
+        GOLDEN_LABELS_PATH_CANDIDATES,
+        GOLDEN_SET_PATH_CANDIDATES,
+        PROJECT_ROOT,
+        RANDOM_SEED,
+        RECEIVED_MODELS_DIR,
+    )
+try:
+    from real_handler import check_components_status, execute_real_submission_pipeline, initialize_real_mode_components
+    from session_schema import normalize_session_payload
+    from session_storage import SessionStorage
+except ImportError:  # pragma: no cover - import-path fallback
+    from aura_backend.real_handler import (  # type: ignore
+        check_components_status,
+        execute_real_submission_pipeline,
+        initialize_real_mode_components,
+    )
+    from aura_backend.session_schema import normalize_session_payload  # type: ignore
+    from aura_backend.session_storage import SessionStorage  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +54,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from fl_client.models.base_model import SimpleNet  # noqa: E402
 from fl_client.utils.training_utils import evaluate_model, train_model  # noqa: E402
+try:
+    from attack_simulation.poison_generators import poison_generator  # noqa: E402
+except Exception:  # pragma: no cover - optional dependency during runtime
+    poison_generator = None
 
 
 def _iso_now() -> str:
@@ -367,6 +390,21 @@ class PipelineRunManager:
 
     def _inject_attack_weights(self, model: torch.nn.Module, intensity: float = 0.35) -> None:
         with torch.no_grad():
+            if poison_generator is not None:
+                try:
+                    flat_layers = [param.detach().cpu().reshape(-1).tolist() for param in model.parameters()]
+                    poisoned_layers = poison_generator.generate_realistic_poisoned_weights(
+                        flat_layers,
+                        attack_type="gaussian_noise",
+                        severity=max(0.05, min(float(intensity), 1.0)),
+                    )
+                    for param, poisoned in zip(model.parameters(), poisoned_layers):
+                        poisoned_tensor = torch.tensor(poisoned, dtype=param.dtype, device=param.device).reshape(param.shape)
+                        param.copy_(poisoned_tensor)
+                    return
+                except Exception as exc:
+                    logger.warning("AdvancedPoisonGenerator injection failed, falling back to perturbation: %s", str(exc))
+
             for name, param in model.named_parameters():
                 scale = max(float(param.detach().abs().mean().item()), 1e-3)
                 noise = torch.randn_like(param) * (intensity * scale)

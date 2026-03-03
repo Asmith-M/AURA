@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { sentinelAPI } from '../services/api';
-import type { PipelineRunStatus } from '../types';
+import type { DatasetInspection, PipelineRunStatus } from '../types';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { Alert } from '../components/Alert';
 import { cn } from '../utils/cn';
@@ -26,6 +26,8 @@ export function SentinelMonitor() {
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [datasetInspection, setDatasetInspection] = useState<DatasetInspection | null>(null);
+  const [datasetLoading, setDatasetLoading] = useState(false);
   const [hospitalId, setHospitalId] = useState('HOSP1');
   const [rounds, setRounds] = useState(2);
   const [localEpochs, setLocalEpochs] = useState(1);
@@ -91,9 +93,22 @@ export function SentinelMonitor() {
     }
   }, [hospitalId, rounds, localEpochs, maxSamples]);
 
+  const loadDatasetInspection = useCallback(async () => {
+    try {
+      setDatasetLoading(true);
+      const inspection = await sentinelAPI.getDatasetInspection(12);
+      setDatasetInspection(inspection);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dataset inspection');
+    } finally {
+      setDatasetLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadLatestRun();
-  }, [loadLatestRun]);
+    void loadDatasetInspection();
+  }, [loadLatestRun, loadDatasetInspection]);
 
   useEffect(() => {
     if (!run) {
@@ -121,14 +136,20 @@ export function SentinelMonitor() {
   const finalSession = (run?.final_session ?? null) as Record<string, unknown> | null;
   const sessionRecord = (finalSession ?? {}) as Record<string, unknown>;
   const anomalyAnalysis = (sessionRecord.anomaly_analysis ?? {}) as Record<string, unknown>;
+  const detectorAnalysis = (sessionRecord.detector_analysis ?? {}) as Record<string, unknown>;
+  const fingerprintAnalysis = (sessionRecord.fingerprint_analysis ?? {}) as Record<string, unknown>;
+  const ledgerEntry = (sessionRecord.ledger_entry ?? sessionRecord.ledger ?? {}) as Record<string, unknown>;
   const modelProfile = (sessionRecord.model_profile ?? {}) as Record<string, unknown>;
   const datasetStats = (sessionRecord.dataset_stats ?? {}) as Record<string, unknown>;
-  const goldenTest = (sessionRecord.golden_test ?? {}) as Record<string, unknown>;
+  const goldenTest = (sessionRecord.golden_eval ?? sessionRecord.golden_test ?? {}) as Record<string, unknown>;
   const shapAnalysis = (sessionRecord.shap_analysis ?? {}) as Record<string, unknown>;
+  const scenarioCalibration = (anomalyAnalysis.scenario_calibration ?? {}) as Record<string, unknown>;
   const isRunning = run?.status === 'queued' || run?.status === 'running';
   const verdict = String(sessionRecord.verdict ?? run?.status?.toUpperCase() ?? 'PROCESSING');
-  const anomalyScore = Number(anomalyAnalysis.anomaly_score ?? 0);
-  const threshold = Number(anomalyAnalysis.threshold ?? 0.72);
+  const anomalyScore = Number(detectorAnalysis.anomaly_score ?? anomalyAnalysis.anomaly_score ?? 0);
+  const threshold = Number(detectorAnalysis.threshold ?? anomalyAnalysis.threshold ?? 0.72);
+  const rawScore = Number(detectorAnalysis.raw_score ?? anomalyAnalysis.raw_score ?? 0);
+  const calibratedScore = Number(scenarioCalibration.post_calibration_score ?? anomalyScore);
 
   const roundChartData = run?.training_summary?.round_metrics?.map((item) => ({
     round: `R${item.round}`,
@@ -154,10 +175,17 @@ export function SentinelMonitor() {
   const recommendations = Array.isArray(sessionRecord.recommendations)
     ? (sessionRecord.recommendations as unknown[]).map((item) => String(item))
     : [];
-  const timelineStatus = Array.isArray(sessionRecord.timeline_status)
+  const executionTrace = Array.isArray(sessionRecord.execution_trace)
+    ? (sessionRecord.execution_trace as Record<string, unknown>[])
+    : [];
+  const timelineStatus = executionTrace.length > 0
+    ? executionTrace
+    : Array.isArray(sessionRecord.timeline_status)
     ? (sessionRecord.timeline_status as Record<string, unknown>[])
     : [];
-  const topFeatures = Array.isArray(shapAnalysis.top_features)
+  const topFeatures = Array.isArray(shapAnalysis.top_5_features)
+    ? (shapAnalysis.top_5_features as Record<string, unknown>[])
+    : Array.isArray(shapAnalysis.top_features)
     ? (shapAnalysis.top_features as Record<string, unknown>[])
     : [];
   const confusionMatrix = Array.isArray(goldenTest.confusion_matrix)
@@ -166,7 +194,6 @@ export function SentinelMonitor() {
   const perClassPrecision = (goldenTest.per_class_precision ?? {}) as Record<string, unknown>;
   const perClassRecall = (goldenTest.per_class_recall ?? {}) as Record<string, unknown>;
   const attackInjection = (anomalyAnalysis.attack_injection ?? {}) as Record<string, unknown>;
-  const scenarioCalibration = (anomalyAnalysis.scenario_calibration ?? {}) as Record<string, unknown>;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -247,6 +274,13 @@ export function SentinelMonitor() {
           >
             <RefreshCw className="w-4 h-4" />
             Refresh Latest Run
+          </button>
+          <button
+            onClick={() => void loadDatasetInspection()}
+            className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            <RefreshCw className="w-4 h-4" />
+            {datasetLoading ? 'Refreshing Dataset...' : 'Refresh Dataset Inspection'}
           </button>
           {run?.artifacts?.model_download_url && (
             <a
@@ -387,6 +421,78 @@ export function SentinelMonitor() {
         </div>
       )}
 
+      {datasetInspection && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Dataset Anomaly Inspection</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+            <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Total Samples</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-white">{datasetInspection.total_samples}</p>
+            </div>
+            <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Anomaly Count / Percentage</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                {datasetInspection.anomaly_count} / {datasetInspection.anomaly_percentage.toFixed(2)}%
+              </p>
+            </div>
+            <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Anomaly Types</p>
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                {Array.isArray(datasetInspection.anomaly_type) ? datasetInspection.anomaly_type.join(', ') : String(datasetInspection.anomaly_type)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Class Distribution</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              {Object.entries(datasetInspection.class_distribution).map(([key, value]) => `${key}:${value}`).join(', ')}
+            </p>
+          </div>
+
+          <div className="mb-5">
+            <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Anomaly Sample Indices</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400 break-all">
+              {datasetInspection.anomaly_indices.join(', ')}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+            {datasetInspection.sample_preview.map((sample) => (
+              <div key={`preview_${sample.index}`} className="p-2 rounded-lg bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700">
+                {sample.image_base64 ? (
+                  <img src={sample.image_base64} alt={`Sample ${sample.index}`} className="w-full h-auto rounded border border-gray-200 dark:border-gray-700" />
+                ) : (
+                  <div className="w-full h-24 rounded bg-gray-200 dark:bg-gray-700" />
+                )}
+                <p className="text-xs mt-1 text-gray-700 dark:text-gray-300">
+                  #{sample.index} | y={sample.label}
+                </p>
+                <p className={cn(
+                  "text-[11px] font-medium",
+                  sample.is_anomalous ? "text-danger-600 dark:text-danger-400" : "text-success-600 dark:text-success-400",
+                )}>
+                  {sample.is_anomalous ? `ANOMALY (${sample.anomaly_tags.join(', ') || 'untyped'})` : 'CLEAN'}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Statistical Summary</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">
+              Global mean/std: {datasetInspection.statistical_summary.global_mean.toFixed(6)} / {datasetInspection.statistical_summary.global_std.toFixed(6)}
+              {' | '}
+              Clean mean/std: {datasetInspection.statistical_summary.clean_mean.toFixed(6)} / {datasetInspection.statistical_summary.clean_std.toFixed(6)}
+              {' | '}
+              Anomalous mean/std: {datasetInspection.statistical_summary.anomalous_mean.toFixed(6)} / {datasetInspection.statistical_summary.anomalous_std.toFixed(6)}
+              {' | '}
+              Signal delta: {datasetInspection.statistical_summary.signal_delta_mean_abs.toFixed(6)}
+            </p>
+          </div>
+        </div>
+      )}
+
       {run?.status === 'completed' && finalSession && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -419,10 +525,24 @@ export function SentinelMonitor() {
                 <h4 className="text-sm text-gray-600 dark:text-gray-400">Ledger TX</h4>
               </div>
               <p className="text-sm font-mono text-gray-900 dark:text-white break-all">
-                {String(sessionRecord.ledger_tx ?? '')}
+                {String(ledgerEntry.tx_id ?? sessionRecord.ledger_tx ?? '')}
               </p>
             </div>
           </div>
+
+          <details className="mt-4 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-lg border border-gray-200 dark:border-gray-700">
+            <summary className="cursor-pointer text-sm font-semibold text-gray-900 dark:text-white">
+              Score Breakdown
+            </summary>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              IF Raw Score: {rawScore.toFixed(6)} → Calibrated: {calibratedScore.toFixed(3)} → Final: {anomalyScore.toFixed(3)}
+            </p>
+            {Boolean(attackInjection.enabled) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Evaluation Override Applied: {Boolean(attackInjection.forced_reject) ? 'Yes' : 'No'}
+              </p>
+            )}
+          </details>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
@@ -441,11 +561,18 @@ export function SentinelMonitor() {
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Model Artifact Metadata</h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Architecture: {String(modelProfile.architecture ?? 'N/A')}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Parameters: {String(modelProfile.parameters ?? 'N/A')}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Model Hash: {String(modelProfile.model_hash ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Parameter Count: {String(modelProfile.parameter_count ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Model Size (MB): {String(modelProfile.model_size_mb ?? modelProfile.model_size ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Weight Hash: {String(modelProfile.weight_hash ?? modelProfile.model_hash ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Hospital ID: {String(modelProfile.hospital_id ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Training Round: {String(modelProfile.training_round ?? 'N/A')}</p>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Samples Tested: {String(datasetStats.samples_tested ?? 'N/A')}</p>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Evidence Hash: {String(sessionRecord.evidence_hash ?? 'N/A')}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Detector Mode: {String(anomalyAnalysis.detector_mode ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Detector Mode: {String(anomalyAnalysis.detector_mode ?? detectorAnalysis.detector_mode ?? 'N/A')}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Raw Score: {Number(detectorAnalysis.raw_score ?? anomalyAnalysis.raw_score ?? 0).toFixed(6)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Detector Confidence: {Number(detectorAnalysis.detector_confidence ?? anomalyAnalysis.detector_confidence ?? anomalyAnalysis.confidence ?? 0).toFixed(3)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Distance From Baseline: {Number(detectorAnalysis.distance_from_baseline ?? anomalyAnalysis.distance_from_baseline ?? 0).toFixed(6)}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Decision Boundary: {JSON.stringify(detectorAnalysis.decision_boundary ?? anomalyAnalysis.decision_boundary ?? {})}</p>
               {Boolean(scenarioCalibration.enabled) && (
                 <>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
@@ -475,6 +602,11 @@ export function SentinelMonitor() {
                       {' | '}
                       {item.timestamp ? new Date(String(item.timestamp)).toLocaleTimeString() : 'N/A'}
                     </p>
+                    {Boolean(item.details) && (
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 break-all">
+                        {JSON.stringify(item.details)}
+                      </p>
+                    )}
                   </div>
                 ))}
                 {timelineStatus.length === 0 && (
@@ -547,6 +679,41 @@ export function SentinelMonitor() {
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Fingerprint Vector Transparency</h3>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 break-all">
+                Raw Vector: {JSON.stringify(fingerprintAnalysis.raw_vector ?? [])}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 break-all">
+                Normalized Vector: {JSON.stringify(fingerprintAnalysis.normalized_vector ?? [])}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 break-all">
+                Baseline Centroid: {JSON.stringify(fingerprintAnalysis.baseline_centroid ?? [])}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                Euclidean Distance: {Number(fingerprintAnalysis.euclidean_distance ?? 0).toFixed(8)}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">
+                Mahalanobis Distance: {Number(fingerprintAnalysis.mahalanobis_distance ?? 0).toFixed(8)}
+              </p>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Detector + Ledger Transparency</h3>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 break-all">
+                Score Interpretation: {String(detectorAnalysis.score_interpretation_logic ?? anomalyAnalysis.score_interpretation_logic ?? 'N/A')}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 break-all">
+                Past Score Distribution: {JSON.stringify(detectorAnalysis.score_distribution_past_sessions ?? anomalyAnalysis.score_distribution_past_sessions ?? {})}
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Ledger TX: {String(ledgerEntry.tx_id ?? 'N/A')}</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">Ledger Timestamp: {String(ledgerEntry.timestamp ?? 'N/A')}</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 break-all">Ledger Evidence Hash: {String(ledgerEntry.evidence_hash ?? 'N/A')}</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 break-all">Ledger Update Hash: {String(ledgerEntry.update_hash ?? 'N/A')}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
               <div className="flex items-center gap-2 mb-4">
                 <AlertTriangle className="w-5 h-5 text-warning-600" />
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Warnings</h3>
@@ -580,11 +747,13 @@ export function SentinelMonitor() {
 
           {Boolean(attackInjection.enabled) && (
             <div className="mt-6 bg-danger-50 dark:bg-danger-900/20 border border-danger-300 dark:border-danger-700 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-danger-700 dark:text-danger-300 mb-2">Attack Injection Diagnostics</h3>
+              <h3 className="text-lg font-semibold text-danger-700 dark:text-danger-300 mb-2">Evaluation Mode Audit</h3>
               <p className="text-sm text-danger-700 dark:text-danger-300">Strategy: {String(attackInjection.strategy ?? 'N/A')}</p>
               <p className="text-sm text-danger-700 dark:text-danger-300">Base Score: {Number(attackInjection.base_score ?? 0).toFixed(3)}</p>
               <p className="text-sm text-danger-700 dark:text-danger-300">Boost Applied: {Number(attackInjection.anomaly_boost ?? 0).toFixed(3)}</p>
-              <p className="text-sm text-danger-700 dark:text-danger-300">Forced Reject: {String(Boolean(attackInjection.forced_reject))}</p>
+              <p className="text-sm text-danger-700 dark:text-danger-300">
+                Ground Truth Override: {Boolean(attackInjection.forced_reject) ? 'Active (evaluation mode)' : 'Inactive'}
+              </p>
             </div>
           )}
         </>

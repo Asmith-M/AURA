@@ -8,16 +8,17 @@ import { motion } from 'framer-motion';
 import { StatCard } from '../components/StatCard';
 import { ChartContainer } from '../components/ChartContainer';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { analyticsAPI, ledgerAPI, sentinelAPI } from '../services/api';
+import { analyticsAPI, ledgerAPI, sentinelAPI, systemAPI } from '../services/api';
 import { dashboardDemoDailyMetrics, dashboardDemoStats, dashboardDemoTransactions } from '../data/dashboardDemo';
 import { formatDate, formatPercentage, getVerdictColor } from '../utils/format';
-import type { DailyMetric, DashboardStats, Transaction } from '../types';
+import type { DailyMetric, DashboardStats, SystemStatus, Transaction } from '../types';
 
 export function Dashboard() {
-  const useDashboardDemo = (import.meta.env.VITE_DASHBOARD_DEMO ?? 'true') === 'true';
+  const useDashboardDemo = (import.meta.env.VITE_DASHBOARD_DEMO ?? 'false') === 'true';
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetric[]>([]);
   const [recentSubmissions, setRecentSubmissions] = useState<Transaction[]>([]);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadStats = useCallback(async () => {
@@ -27,17 +28,20 @@ export function Dashboard() {
         setStats(dashboardDemoStats);
         setRecentSubmissions(dashboardDemoTransactions);
         setDailyMetrics(dashboardDemoDailyMetrics);
+        setSystemStatus({ backend: 'online', model_loaded: true, last_run: new Date().toISOString() });
         return;
       }
 
-      const [statsData, txData, dailyData] = await Promise.all([
+      const [statsData, txData, dailyData, statusData] = await Promise.all([
         sentinelAPI.getDetectionStats(),
         ledgerAPI.getTransactions({ per_page: 10 }),
         analyticsAPI.getDailyMetrics(7),
+        systemAPI.getStatus(),
       ]);
       setStats(statsData);
       setRecentSubmissions(txData);
       setDailyMetrics(dailyData);
+      setSystemStatus(statusData);
     } catch (error) {
       console.error('Failed to load stats:', error);
     } finally {
@@ -89,6 +93,32 @@ export function Dashboard() {
         <div className="absolute bottom-0 right-20 w-48 h-48 bg-white/10 rounded-full -mb-24" />
       </motion.div>
 
+      {systemStatus && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-lg">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">System Status</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+              <p className="text-gray-500 dark:text-gray-400">Backend</p>
+              <p className={`font-semibold ${systemStatus.backend === 'online' ? 'text-emerald-600' : 'text-red-600'}`}>
+                {systemStatus.backend === 'online' ? 'Online' : 'Offline'}
+              </p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+              <p className="text-gray-500 dark:text-gray-400">Isolation Forest</p>
+              <p className={`font-semibold ${systemStatus.model_loaded ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {systemStatus.model_loaded ? 'Loaded' : 'Not Loaded'}
+              </p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+              <p className="text-gray-500 dark:text-gray-400">Last Pipeline Run</p>
+              <p className="font-semibold text-gray-900 dark:text-white">
+                {systemStatus.last_run ? formatDate(systemStatus.last_run) : 'N/A'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
@@ -113,7 +143,7 @@ export function Dashboard() {
           color="danger"
         />
         <StatCard
-          title="System Health"
+          title="Attack Detection Rate"
           value={formatPercentage(stats.security_effectiveness, 0)}
           icon={TrendingUp}
           color="success"
@@ -185,7 +215,7 @@ export function Dashboard() {
       {/* Recent Submissions Table */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Submissions</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Ledger Activity</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
