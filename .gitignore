@@ -86,3 +86,8 @@ data/golden_labels.npy
 data/golden_set.npy
 detector/model.pkl
 aura_backend/detector/model.pkl
+
+# Ignore large datasets and model weights
+*.json
+*.pth
+aura_backend/golden_set/
