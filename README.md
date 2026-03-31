@@ -25,6 +25,11 @@ This repository answers that by combining three layers:
 The current primary runtime is the unified backend in `aura_backend/`, which exposes the API consumed by the dashboard and orchestrates the end-to-end analysis pipeline.
 
 ---
+## SCREENSHOTS
+<img width="1919" height="875" alt="image" src="https://github.com/user-attachments/assets/d4e6364f-b44a-4f33-9b66-37f70c09c82d" />
+<img width="1919" height="871" alt="image" src="https://github.com/user-attachments/assets/793b6969-2811-46a0-aef3-10db778d1014" />
+<img width="1919" height="865" alt="image" src="https://github.com/user-attachments/assets/3d187003-e6c7-40f3-a4d4-72e75845f559" />
+<img width="1919" height="866" alt="image" src="https://github.com/user-attachments/assets/5e98fd2c-78af-48cc-8acb-0b24d63e6cf3" />
 
 ## What AURA Does
 
