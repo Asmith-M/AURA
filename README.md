@@ -1,6 +1,6 @@
 # AURA
 
-> Auditable, Unified, Resilient Architecture for federated learning security.
+> Autonomous Update Review Architecture for federated learning security.
 
 AURA is a full-stack platform for inspecting, scoring, and auditing federated model updates before they are accepted into a training ecosystem. It combines a FastAPI backend, a React dashboard, federated learning simulation modules, SHAP-based explainability, anomaly detection, and ledger-style evidence tracking in one repository.
 
